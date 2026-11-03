@@ -5,3 +5,7 @@ obj/
 .env.*
 !.env.example
 publish/
+Properties/PublishProfiles/
+*.publishsettings
+*.PublishSettings
+*.pubxml
