@@ -196,7 +196,7 @@
       !channelQuery || normalizeSearchText(`${channel.title} ${channel.handle || ''}`).includes(channelQuery));
     list.innerHTML = matches.length ? matches.map(({ channel, index }) => `<div class="channel-item ${channel.id && activeChannel === channel.id ? 'selected' : ''}" data-index="${index}"><button class="channel-select" type="button" data-select="${index}" aria-pressed="${Boolean(channel.id && activeChannel === channel.id)}" title="${escapeHtml(channel.title)}">
       ${channel.thumbnail ? `<img class="channel-avatar remote-avatar" data-avatar-fallback="${initials(channel.title)}" data-fallback-class="channel-avatar channel-letter" src="${escapeHtml(proxyImage(channel.thumbnail))}" alt="">` : `<span class="channel-avatar channel-letter">${initials(channel.title)}</span>`}
-      <span class="channel-name">${escapeHtml(channel.title)}</span>${!channel.id ? '<span title="بانتظار إعداد المفتاح">·</span>' : ''}</button><button class="remove-channel" data-remove="${index}" aria-label="حذف القناة ${escapeHtml(channel.title)}">×</button></div>`).join('')
+      <span class="channel-name">${escapeHtml(channel.title)}</span>${!channel.id ? '<span title="بانتظار إعداد المفتاح">·</span>' : ''}</button><button class="remove-channel" type="button" data-remove="${index}" aria-label="إزالة ${escapeHtml(channel.title)} من قنواتك" title="إزالة القناة">×</button></div>`).join('')
       : `<div class="channel-search-empty">${channelQuery ? 'لا توجد قنوات بهذا الاسم.' : 'أضف قنواتك لتظهر هنا.'}</div>`;
     list.querySelectorAll('[data-select]').forEach((button) => {
       button.addEventListener('click', () => {

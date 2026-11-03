@@ -268,3 +268,9 @@ body.theme-light .notification-limits{border-color:#e1e2dc;background:#f4f5f1;co
 @media(max-width:760px) and (orientation:landscape){
   #watchModal.mini-watch{width:min(300px,calc(100vw - 24px))}
 }
+.channel-item .remove-channel{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;padding:0;opacity:1;border:1px solid #3a3030;border-radius:7px;background:#211b1c;color:#e59a8f;font-size:19px;line-height:1;transition:background .15s,border-color .15s,color .15s}
+.channel-item .remove-channel:hover{border-color:#744b47;background:#382321;color:#ffb1a5}
+.channel-item .remove-channel:active{background:#512d29}
+body.theme-light .channel-item .remove-channel{border-color:#ead9d6;background:#faf2f1;color:#a85044}
+body.theme-light .channel-item .remove-channel:hover{border-color:#d7a39b;background:#f8e7e4;color:#8f332a}
+@media(max-width:760px){.channel-item{min-height:46px}.channel-item .remove-channel{flex-basis:40px;width:40px;height:40px;font-size:22px;border-radius:9px}}
