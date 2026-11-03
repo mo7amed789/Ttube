@@ -2,28 +2,41 @@
 
 An Arabic, right-to-left video discovery app where the viewer controls the sources. Channel choices are stored in that browser's local storage; the server does not create accounts or persist a viewer profile. The .NET backend uses YouTube Data API v3 to resolve channels and load their uploads. Feed results are limited to the channel IDs sent by the browser.
 
-## Run locally
+## Run locally (quick start)
 
-1. Install the .NET 10 SDK.
-2. Create a YouTube Data API v3 key in Google Cloud and enable the YouTube Data API v3 for its project.
-3. In PowerShell, set the key for this terminal session and start the app:
+Ttube runs on Windows, macOS, and Linux. You need Git, the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), and your own YouTube Data API v3 key. The key is entered privately when the start script asks for it; it is not saved to the repository or printed on screen.
 
-   ```powershell
-   $env:YouTube__ApiKey = "YOUR_API_KEY"
-   dotnet run
-   ```
+### Windows
 
-4. Open the local address printed by ASP.NET Core.
-
-For a persistent local secret, use .NET user secrets instead of putting a key in source control:
+Open PowerShell and run:
 
 ```powershell
-dotnet user-secrets init
-dotnet user-secrets set "YouTube:ApiKey" "YOUR_API_KEY"
-dotnet run
+git clone https://github.com/mo7amed789/Ttube.git
+cd Ttube
+.\run-local.ps1
 ```
 
-The key is read only by the server and is never sent to the browser. Without it, a pasted channel link is still saved in the current browser and will be resolved after the key is configured and the page is refreshed.
+If PowerShell blocks the script, run it for this window only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-local.ps1
+```
+
+### macOS or Linux
+
+Open Terminal and run:
+
+```bash
+git clone https://github.com/mo7amed789/Ttube.git
+cd Ttube
+bash ./run-local.sh
+```
+
+Both scripts check for the .NET 10 SDK, ask for the API key without echoing it, start Ttube at **http://localhost:5248**, and open the site in your browser. Get a key from [Google Cloud Console](https://console.cloud.google.com/apis/credentials) after enabling **YouTube Data API v3** for your project.
+
+The key is used by the .NET server only. Do not put it in `wwwroot`, source files, screenshots, or a public repository. If you already have the key in an environment variable named `YouTube__ApiKey`, the scripts use it without prompting.
+
+Without a key, Ttube can open, but it cannot resolve channels or load live YouTube videos. OAuth setup for importing a viewer's subscriptions is optional; see the next section.
 
 ## Import your YouTube subscriptions
 
