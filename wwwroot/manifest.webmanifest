@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Ttube — عالمك، على اختيارك",
+  "short_name": "Ttube",
+  "description": "شاهد وتعلّم من القنوات التي تختارها بنفسك.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#101114",
+  "theme_color": "#101114",
+  "icons": [
+    { "src": "/icons/ttube-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/ttube-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

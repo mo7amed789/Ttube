@@ -1008,6 +1008,36 @@
   window.matchMedia('(max-width: 760px)').addEventListener('change', () => { $('#sidebar').classList.remove('open'); syncSidebarButton(); });
   $('#avatarButton').addEventListener('click', () => notify('حسابك غير مطلوب — بياناتك على هذا الجهاز فقط'));
 
+  const installButton = $('#installAppButton');
+  let installPrompt = null;
+  const appIsInstalled = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if (appIsInstalled) installButton.hidden = true;
+  window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault();
+    installPrompt = event;
+  });
+  installButton.addEventListener('click', async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      const result = await installPrompt.userChoice;
+      installPrompt = null;
+      if (result.outcome === 'accepted') installButton.hidden = true;
+      else notify('يمكنك تثبيت Ttube لاحقًا من قائمة المتصفح.');
+      return;
+    }
+    const isAppleMobile = /iphone|ipad|ipod/i.test(navigator.userAgent) && !('MSStream' in window);
+    if (isAppleMobile) notify('في Safari اضغط «مشاركة» ثم «إضافة إلى الشاشة الرئيسية».');
+    else notify('من قائمة المتصفح اختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية».');
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    installButton.hidden = true;
+    notify('تم تثبيت Ttube على جهازك.');
+  });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
   applyTheme(localStorage.getItem(THEME_STORE) || 'dark');
   applyVideoTypography();
   syncSidebarButton();

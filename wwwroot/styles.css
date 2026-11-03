@@ -11,6 +11,10 @@
 .channel-section{flex:1;min-height:0;display:flex;flex-direction:column}
 .channel-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#393a40 transparent}
 .sidebar-bottom{flex:0 0 auto}
+.install-app-button{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 10px;padding:9px 10px;border:1px solid #46543c;border-radius:8px;background:#20271b;color:var(--accent);font-size:11px;font-weight:600}
+.install-app-button svg{width:17px;height:17px}
+.install-app-button:hover{background:#293321;border-color:#718858}
+body.theme-light .install-app-button{background:#eff5e7;border-color:#cbd9ba;color:#40562c}
 .empty-state.is-loading>span{width:18px;height:18px;border:2px solid #45483f;border-top-color:var(--accent);border-radius:50%;animation:ttube-spin .8s linear infinite;margin:0 auto 10px;font-size:0}
 @keyframes ttube-spin{to{transform:rotate(360deg)}}
 .channel-total{font:10px 'DM Sans',sans-serif;color:#62646c;direction:ltr;display:inline-block;margin-right:3px}

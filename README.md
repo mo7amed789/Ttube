@@ -38,6 +38,10 @@ The key is used by the .NET server only. Do not put it in `wwwroot`, source file
 
 Without a key, Ttube can open, but it cannot resolve channels or load live YouTube videos. OAuth setup for importing a viewer's subscriptions is optional; see the next section.
 
+## Install on a phone
+
+Open Ttube over HTTPS on your phone and tap **ثبّت Ttube على جهازك** in the side menu, or use the browser menu's install / add-to-home-screen option. On iPhone or iPad, open Ttube in Safari and choose **Share → Add to Home Screen**. The installed app keeps the interface shell available offline; loading videos, comments, search, and channel feeds still needs an internet connection.
+
 ## Import your YouTube subscriptions
 
 An API key can only read public data. Importing the signed-in user's subscriptions needs a separate OAuth client and the user's consent. Ttube asks only for the `youtube.readonly` scope, reads the complete subscription list, then discards the short-lived access token. Imported channel choices are saved in the browser's local storage.
