@@ -2,6 +2,10 @@
 
 An Arabic, right-to-left video discovery app where the viewer controls the sources. Channel choices are stored in that browser's local storage; the server does not create accounts or persist a viewer profile. The .NET backend uses YouTube Data API v3 to resolve channels and load their uploads. Feed results are limited to the channel IDs sent by the browser.
 
+## Live demo
+
+Open the deployed platform: [Ttube live platform](https://d7mas77-001-site1.ltempurl.com/#home)
+
 ## Run locally (quick start)
 
 Ttube runs on Windows, macOS, and Linux. You need Git, the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), and your own YouTube Data API v3 key. The key is entered privately when the start script asks for it; it is not saved to the repository or printed on screen.
