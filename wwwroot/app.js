@@ -433,11 +433,11 @@
     $('#smartSuggestionsToggle').checked = settings.smartSuggestions;
     $('#uploadNotificationsToggle').checked = settings.uploadNotifications;
     const status = $('#notificationStatus');
-    if (!settings.uploadNotifications) status.textContent = 'عند فتح قناة، ستظهر أحدث فيديوهاتها هنا. فعّل إشعارات النظام للتنبيه أثناء استخدام الموقع.';
+    if (!settings.uploadNotifications) status.textContent = 'الإشعارات متوقفة. عند فتح قناة، ستظهر أحدث فيديوهاتها هنا.';
     else if (!('Notification' in window)) status.textContent = 'هذا المتصفح لا يدعم إشعارات النظام.';
     else if (Notification.permission === 'denied') status.textContent = 'الإذن مرفوض من المتصفح. غيّره من إعدادات الموقع.';
-    else if (!channels.some(channel => channel.id)) status.textContent = 'أضف قنوات أولًا؛ بعدها سيفحص Ttube الرفعات كل 4 ساعات أثناء فتح الموقع.';
-    else status.textContent = 'الإشعارات مفعّلة؛ يفحص Ttube قنواتك كل 4 ساعات أثناء فتح الموقع.';
+    else if (!channels.some(channel => channel.id)) status.textContent = 'أضف قنوات أولًا؛ بعدها سيفحص Ttube الرفعات كل 4 ساعات أثناء فتح الصفحة.';
+    else status.textContent = 'الإشعارات مفعّلة؛ يفحص Ttube قنواتك كل 4 ساعات عند فتح الصفحة، ويعيد الفحص عند رجوعك إليها.';
     const list = $('#notificationList');
     const entries = (notificationChannelFilter
       ? settings.notifications.filter(item => item.channelId === notificationChannelFilter).sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, 8)
@@ -562,6 +562,7 @@
     currentVideo = video; commentsNextPage = null;
     recordWatchHistory(video);
     $('#watchTitle').textContent = video.title;
+    $('#miniWatchTitle').textContent = video.title;
     $('#watchChannel').textContent = video.channelTitle;
     $('#watchStats').textContent = `${formatViews(video.views)} · ${formatDate(video.publishedAt)}`;
     const youtubeUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}`;
@@ -592,6 +593,7 @@
     const iframe = $('#playerFrame').querySelector('iframe');
     if (!iframe || !currentVideo) return;
     $('#watchModal').classList.add('mini-watch');
+    $('#watchModal').setAttribute('aria-modal', 'false');
     $('#minimizeWatch').textContent = '↗';
     $('#minimizeWatch').setAttribute('aria-label', 'تكبير مشغل الفيديو');
     $('#minimizeWatch').title = 'تكبير';
@@ -600,6 +602,7 @@
   function restoreMiniPlayer() {
     if (!$('#watchModal').classList.contains('mini-watch')) return;
     $('#watchModal').classList.remove('mini-watch');
+    $('#watchModal').setAttribute('aria-modal', 'true');
     $('#minimizeWatch').textContent = '−';
     $('#minimizeWatch').setAttribute('aria-label', 'تصغير الفيديو');
     $('#minimizeWatch').title = 'تصغير';
@@ -608,6 +611,7 @@
   function closePlayer() {
     clearTimeout(playerIdleTimer); playerIdleTimer = null;
     $('#watchModal').hidden = true; $('#miniPlayer').hidden = true;
+    $('#watchModal').setAttribute('aria-modal', 'true');
     $('#watchModal').classList.remove('mini-watch');
     $('#watchModal').classList.remove('cursor-idle');
     $('#playerFrame').replaceChildren(); $('#miniPlayerFrame').replaceChildren();
@@ -651,6 +655,7 @@
     const button = $('#fullscreenWatch');
     button.setAttribute('aria-label', active ? 'إنهاء ملء الشاشة' : 'ملء الشاشة');
     button.title = active ? 'إنهاء ملء الشاشة' : 'ملء الشاشة';
+    button.setAttribute('aria-pressed', String(active));
   }
   async function loadComments(videoId, append) {
     const list = $('#commentList'); const more = $('#loadMoreComments');
