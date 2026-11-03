@@ -22,6 +22,7 @@
   let externalSearchRequestId = 0;
   let externalChannels = [];
   let relatedDiscoveryActive = false;
+  let exploreSearchActive = false;
   let toastTimer;
   let uploadCheckRunning = false;
   let savedLocation = readLocation();
@@ -226,25 +227,33 @@
   }
 
   function renderExternalChannels() {
-    const panel = $('#externalSearchResults');
+    const panel = exploreSearchActive ? $('#exploreResults') : $('#externalSearchResults');
     if (!externalChannels.length) {
       panel.innerHTML = '<div class="search-empty">لم نعثر على قنوات مطابقة. جرّب كلمات أخرى.</div>';
       return;
     }
-    panel.innerHTML = `<div class="search-results-heading">${relatedDiscoveryActive ? 'قنوات قريبة من محتوى قنواتك' : 'قنوات من YouTube'} <small>${relatedDiscoveryActive ? 'اخترنا موضوعات من أحدث فيديوهات قنواتك' : 'أضف القناة لتظهر فيديوهاتها في Ttube'}</small></div>${externalChannels.map(channel => {
+    const heading = exploreSearchActive ? 'قنوات تناسب اهتماماتك' : relatedDiscoveryActive ? 'قنوات قريبة من محتوى قنواتك' : 'قنوات من YouTube';
+    const description = exploreSearchActive ? 'مرتبة حسب عدد المشتركين، مع تفضيل اللغة التي اخترتها.' : relatedDiscoveryActive ? 'اخترنا موضوعات من أحدث فيديوهات قنواتك' : 'أضف القناة لتظهر فيديوهاتها في Ttube';
+    panel.innerHTML = `<div class="search-results-heading">${heading} <small>${description}</small></div>${externalChannels.map(channel => {
       const added = channels.some(item => item.id === channel.id);
-      return `<article class="external-channel-result">${channel.thumbnail ? `<img src="${escapeHtml(proxyImage(channel.thumbnail))}" alt="">` : '<span class="external-channel-placeholder">▶</span>'}<div class="external-channel-copy"><b>${escapeHtml(channel.title)}</b><p>${escapeHtml(channel.description || '')}</p></div><button type="button" data-add-search-channel="${escapeHtml(channel.id)}" ${added ? 'disabled' : ''}>${added ? 'مضافة' : '＋ أضف'}</button></article>`;
-    }).join('')}<div class="search-results-note">هذه النتائج من خارج قائمتك؛ لن تظهر فيديوهاتها حتى تضيف القناة. يستخدم البحث حصة YouTube API المحدودة.</div>`;
+      const subscribers = Number(channel.subscribers) || 0;
+      const popularity = subscribers ? `${subscribers.toLocaleString('ar-EG')} مشترك` : 'عدد المشتركين مخفي';
+      return `<article class="external-channel-result">${channel.thumbnail ? `<img src="${escapeHtml(proxyImage(channel.thumbnail))}" alt="">` : '<span class="external-channel-placeholder">▶</span>'}<div class="external-channel-copy"><b>${escapeHtml(channel.title)}</b><p class="channel-popularity">${popularity}</p><p>${escapeHtml(channel.description || '')}</p></div><button type="button" data-add-search-channel="${escapeHtml(channel.id)}" ${added ? 'disabled' : ''}>${added ? 'مضافة' : '＋ أضف'}</button></article>`;
+    }).join('')}<div class="search-results-note">${exploreSearchActive ? 'تساعد التصفية على تقليل المحتوى الناضج ولا تضمن ملاءمة كل فيديو. أضف القنوات التي تثق بها فقط.' : 'هذه النتائج من خارج قائمتك؛ لن تظهر فيديوهاتها حتى تضيف القناة. يستخدم البحث حصة YouTube API المحدودة.'}</div>`;
     installAvatarFallbacks(panel);
   }
-  async function searchExternalChannels() {
-    const query = $('#searchInput').value.trim();
+  async function searchExternalChannels(options = {}) {
+    const query = (options.query ?? $('#searchInput').value).trim();
     if (query.length < 2) { notify('اكتب كلمتين أو أكثر للبحث في YouTube.'); return; }
-    const requestId = ++externalSearchRequestId; const panel = $('#externalSearchResults');
+    const requestId = ++externalSearchRequestId;
+    const panel = exploreSearchActive ? $('#exploreResults') : $('#externalSearchResults');
     externalChannels = []; panel.hidden = false;
     panel.innerHTML = '<div class="search-loading">جارٍ البحث في قنوات YouTube…</div>';
     try {
-      const response = await fetch(`/api/search/channels?q=${encodeURIComponent(query)}`);
+      const queryParams = new URLSearchParams({ q: query });
+      if (options.language) queryParams.set('language', options.language);
+      if (options.safeSearch) queryParams.set('safeSearch', 'true');
+      const response = await fetch(`/api/search/channels?${queryParams.toString()}`);
       const payload = await response.json().catch(() => ({}));
       if (requestId !== externalSearchRequestId) return;
       if (!response.ok) {
@@ -287,6 +296,16 @@
     closeSidebar();
     searchExternalChannels();
   }
+  function openExploreModal() {
+    exploreSearchActive = true;
+    relatedDiscoveryActive = false;
+    externalChannels = [];
+    $('#exploreResults').hidden = true;
+    $('#exploreResults').replaceChildren();
+    $('#exploreModal').hidden = false;
+    $('#exploreQuery').focus();
+  }
+  function closeExploreModal() { $('#exploreModal').hidden = true; exploreSearchActive = false; }
   async function addExternalChannel(channelId, button) {
     if (channels.some(channel => channel.id === channelId)) { button.disabled = true; button.textContent = 'مضافة'; return; }
     button.disabled = true; button.textContent = 'جارٍ الإضافة…';
@@ -825,7 +844,24 @@
   }
   document.querySelectorAll('#openAdd,#sideAdd,#sideAddLink,#heroAdd,#entryAdd').forEach(button => button.addEventListener('click', openModal));
   document.querySelectorAll('#importSubscriptions,#importSubscriptionsEmpty').forEach(button => button.addEventListener('click', openImportModal));
-  $('#discoverRelatedChannels').addEventListener('click', discoverRelatedChannels);
+  $('#discoverRelatedChannels').addEventListener('click', openExploreModal);
+  $('#closeExploreModal').addEventListener('click', closeExploreModal);
+  $('#exploreModal').addEventListener('click', event => { if (event.target === $('#exploreModal')) closeExploreModal(); });
+  $('#exploreForm').addEventListener('submit', event => {
+    event.preventDefault();
+    searchExternalChannels({
+      query: $('#exploreQuery').value,
+      language: $('#exploreLanguage').value,
+      safeSearch: $('#exploreSafeSearch').checked
+    });
+  });
+  document.querySelectorAll('[data-explore-query]').forEach(button => button.addEventListener('click', () => {
+    $('#exploreQuery').value = button.dataset.exploreQuery;
+    document.querySelectorAll('[data-explore-query]').forEach(topic => topic.setAttribute('aria-pressed', String(topic === button)));
+    $('#exploreQuery').focus();
+  }));
+  $('#exploreQuery').addEventListener('input', () => document.querySelectorAll('[data-explore-query]').forEach(topic => topic.setAttribute('aria-pressed', 'false')));
+  $('#exploreRelatedFromChannels').addEventListener('click', () => { closeExploreModal(); discoverRelatedChannels(); });
   $('#closeImportModal').addEventListener('click', closeImportModal);
   $('#importModal').addEventListener('click', event => { if (event.target === $('#importModal')) closeImportModal(); });
   $('#startImport').addEventListener('click', beginSubscriptionImport);
@@ -860,7 +896,7 @@
     const video = videos.find(item => item.id === button.dataset.watch); if (video) openPlayer(video);
   });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { closeModal(); closeImportModal(); closePlayer(); closeSidebar(); $('#notificationsPanel').hidden = true; $('#notificationsButton').setAttribute('aria-expanded', 'false'); $('#externalSearchResults').hidden = true; }
+    if (event.key === 'Escape') { closeModal(); closeImportModal(); closeExploreModal(); closePlayer(); closeSidebar(); $('#notificationsPanel').hidden = true; $('#notificationsButton').setAttribute('aria-expanded', 'false'); $('#externalSearchResults').hidden = true; }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
       if (window.matchMedia('(max-width: 760px)').matches) $('#searchWrap').classList.add('expanded');
@@ -922,10 +958,10 @@
     if (event.key === 'Enter' && $('#searchMode').value === 'youtube') { event.preventDefault(); searchExternalChannels(); }
   });
   $('#searchSubmit').addEventListener('click', searchExternalChannels);
-  $('#externalSearchResults').addEventListener('click', event => {
+  document.querySelectorAll('#externalSearchResults,#exploreResults').forEach(panel => panel.addEventListener('click', event => {
     const button = event.target.closest('[data-add-search-channel]');
     if (button) addExternalChannel(button.dataset.addSearchChannel, button);
-  });
+  }));
   $('.search-wrap').addEventListener('click', () => {
     if (window.matchMedia('(max-width: 760px)').matches && !$('.search-wrap').classList.contains('expanded')) {
       $('.search-wrap').classList.add('expanded'); $('#searchInput').focus();

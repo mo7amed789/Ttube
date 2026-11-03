@@ -68,6 +68,7 @@ The OAuth consent screen may show an unverified-app warning while the app remain
 ## Current behavior
 
 - Add a channel by its `youtube.com/@handle` or `youtube.com/channel/UC…` link, switch between your saved sources, or remove one.
+- Discover public channels from topics you choose, including Arabic travel, Islamic lessons, Quran recitation, .NET, programming, and history. Results prefer the selected language, can use YouTube SafeSearch, and are ranked by public subscriber count; SafeSearch cannot guarantee every video on a channel is suitable.
 - Browse uploads from those sources, sort by view count or date, search locally, and watch in Ttube's embedded YouTube player. The watch view includes the video description, public comments (with pagination), and related suggestions assembled only from the channels currently saved in the browser.
 - YouTube's embedded player may show end-of-video recommendations from the same source channel; the app's own suggestions stay within the saved channel list.
 - The short-video view uses a duration of three minutes or less as a practical filter. YouTube's API does not label every upload as a Short, so the duration is an approximation.

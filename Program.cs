@@ -136,18 +136,21 @@ app.MapPost("/api/channels/resolve", async Task<IResult> (ResolveChannelRequest 
     }
 });
 
-app.MapGet("/api/search/channels", async Task<IResult> (string? q, YouTubeDataClient youtube, IDistributedCache cache, CancellationToken ct) =>
+app.MapGet("/api/search/channels", async Task<IResult> (string? q, string? language, bool? safeSearch, YouTubeDataClient youtube, IDistributedCache cache, CancellationToken ct) =>
 {
     var query = q?.Trim();
     if (string.IsNullOrWhiteSpace(query) || query.Length < 2)
         return Results.BadRequest(new { detail = "Enter at least two characters to search YouTube." });
     if (query.Length > 100) return Results.BadRequest(new { detail = "Search text must be 100 characters or fewer." });
-    var cacheKey = $"ttube:channel-search:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(query.ToLowerInvariant())))}";
+    var languageCode = language?.Trim().ToLowerInvariant() switch { "ar" => "ar", "en" => "en", _ => null };
+    var useSafeSearch = safeSearch == true;
+    var cacheInput = $"{query.ToLowerInvariant()}|{languageCode}|{useSafeSearch}";
+    var cacheKey = $"ttube:channel-search:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheInput)))}";
     try
     {
         var cached = await cache.GetStringAsync(cacheKey, ct);
         if (cached is not null) return Results.Content(cached, "application/json");
-        var results = await youtube.SearchChannelsAsync(query, ct);
+        var results = await youtube.SearchChannelsAsync(query, languageCode, useSafeSearch, ct);
         var json = JsonSerializer.Serialize(results, JsonSerializerOptions.Web);
         await cache.SetStringAsync(cacheKey, json, new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30) }, ct);
         return Results.Content(json, "application/json");
@@ -262,7 +265,7 @@ record ResolveChannelRequest(string Url);
 record FeedRequest(string[] ChannelIds, Dictionary<string, string>? PageTokens = null, int? PageSize = null);
 record FeedPage(IReadOnlyList<VideoItem> Videos, Dictionary<string, string> NextPageTokens, int PageSize);
 record ChannelItem(string Id, string Title, string? Thumbnail, string? Handle, string UploadsPlaylistId);
-record ChannelSearchItem(string Id, string Title, string? Description, string? Thumbnail);
+record ChannelSearchItem(string Id, string Title, string? Description, string? Thumbnail, long Subscribers, long Views);
 record VideoItem(string Id, string Title, string? Description, string? Thumbnail, string ChannelId, string ChannelTitle,
     string PublishedAt, long Views, string Duration, int DurationSeconds, bool AgeRestricted);
 record VideoComment(string Id, string Text, string Author, string? AuthorThumbnail, string PublishedAt, long Likes);
@@ -291,15 +294,30 @@ sealed class YouTubeDataClient(HttpClient http, IConfiguration config)
         return item is null ? null : ToChannel(item);
     }
 
-    public async Task<IReadOnlyList<ChannelSearchItem>> SearchChannelsAsync(string query, CancellationToken ct)
+    public async Task<IReadOnlyList<ChannelSearchItem>> SearchChannelsAsync(string query, string? language, bool safeSearch, CancellationToken ct)
     {
         var key = RequireKey();
+        var languageQuery = string.IsNullOrWhiteSpace(language) ? "" : $"&relevanceLanguage={Uri.EscapeDataString(language)}";
+        var safeSearchQuery = safeSearch ? "&safeSearch=strict" : "";
         var response = await GetAsync<SearchResponse>(
-            $"search?part=snippet&type=channel&maxResults=12&q={Uri.EscapeDataString(query)}&key={Uri.EscapeDataString(key)}", ct);
-        return response.Items
-            .Where(item => !string.IsNullOrWhiteSpace(item.Id?.ChannelId))
-            .Select(item => new ChannelSearchItem(item.Id!.ChannelId!, item.Snippet?.Title ?? "YouTube channel",
-                item.Snippet?.Description, BestThumbnail(item.Snippet?.Thumbnails)))
+            $"search?part=snippet&type=channel&maxResults=12&q={Uri.EscapeDataString(query)}{languageQuery}{safeSearchQuery}&key={Uri.EscapeDataString(key)}", ct);
+        var matches = response.Items.Where(item => !string.IsNullOrWhiteSpace(item.Id?.ChannelId)).ToArray();
+        if (matches.Length == 0) return [];
+        var ids = matches.Select(item => item.Id!.ChannelId!).Distinct(StringComparer.Ordinal).ToArray();
+        var details = await GetAsync<ChannelResponse>(
+            $"channels?part=snippet,statistics&id={Uri.EscapeDataString(string.Join(',', ids))}&key={Uri.EscapeDataString(key)}", ct);
+        var detailsById = details.Items.ToDictionary(item => item.Id, StringComparer.Ordinal);
+        return matches.Select(item =>
+            {
+                var id = item.Id!.ChannelId!;
+                detailsById.TryGetValue(id, out var channel);
+                return new ChannelSearchItem(id, item.Snippet?.Title ?? channel?.Snippet?.Title ?? "YouTube channel",
+                    item.Snippet?.Description ?? channel?.Snippet?.Description, BestThumbnail(item.Snippet?.Thumbnails) ?? BestThumbnail(channel?.Snippet?.Thumbnails),
+                    long.TryParse(channel?.Statistics?.SubscriberCount, out var subscribers) ? subscribers : 0,
+                    long.TryParse(channel?.Statistics?.ViewCount, out var views) ? views : 0);
+            })
+            .OrderByDescending(item => item.Subscribers)
+            .ThenByDescending(item => item.Views)
             .ToArray();
     }
 
@@ -448,7 +466,7 @@ sealed class YouTubeDataClient(HttpClient http, IConfiguration config)
     private static string FormatDuration(int s) => $"{s / 3600:00}:{s % 3600 / 60:00}:{s % 60:00}";
 
     private sealed class ChannelResponse { public List<ChannelDto> Items { get; set; } = []; }
-    private sealed class ChannelDto { public string Id { get; set; } = ""; public Snippet? Snippet { get; set; } public ContentDetails? ContentDetails { get; set; } }
+    private sealed class ChannelDto { public string Id { get; set; } = ""; public Snippet? Snippet { get; set; } public ContentDetails? ContentDetails { get; set; } public Statistics? Statistics { get; set; } }
     private sealed class SearchResponse { public List<SearchResultDto> Items { get; set; } = []; }
     private sealed class SearchResultDto { public SearchId? Id { get; set; } public Snippet? Snippet { get; set; } }
     private sealed class SearchId { public string? ChannelId { get; set; } }
@@ -462,7 +480,7 @@ sealed class YouTubeDataClient(HttpClient http, IConfiguration config)
     private sealed class ContentDetails { public RelatedPlaylists? RelatedPlaylists { get; set; } public string? Duration { get; set; } public ContentRating? ContentRating { get; set; } }
     private sealed class ContentRating { public string? YtRating { get; set; } }
     private sealed class RelatedPlaylists { public string? Uploads { get; set; } }
-    private sealed class Statistics { public string? ViewCount { get; set; } }
+    private sealed class Statistics { public string? ViewCount { get; set; } public string? SubscriberCount { get; set; } }
     private sealed class Thumbnails { [JsonPropertyName("default")] public Thumbnail? Default { get; set; } public Thumbnail? Medium { get; set; } public Thumbnail? High { get; set; } }
     private sealed class Thumbnail { public string? Url { get; set; } }
     private sealed class CommentThreadResponse { public List<CommentThreadDto> Items { get; set; } = []; public string? NextPageToken { get; set; } }
