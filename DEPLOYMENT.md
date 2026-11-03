@@ -2,6 +2,35 @@
 
 This guide deploys Ttube as two .NET containers behind Nginx, with Redis for shared cache and short-lived OAuth import state. It is suitable for a single Linux VPS. For higher availability, move the app containers and Redis to managed services and use a managed load balancer.
 
+If you have GitHub Student Developer Pack and want GitHub to deploy each push, use the Azure App Service path below. GitHub Pages cannot host Ttube's .NET API because Pages serves static sites only.
+
+## Deploy from GitHub to Azure App Service
+
+This workflow builds Ttube on each push to `main`. It only deploys after an Azure Web App name is set in GitHub, so the first push only builds the app.
+
+1. Activate an eligible Azure for Students subscription from your Student Pack / Azure Education Hub. Check the offer and remaining credit in Azure before creating resources.
+2. In the Azure portal, create an **App Service Web App** with **Code** as the publish option and **.NET 10** as the runtime. Use a plan available to your subscription. The free plan is suitable for a prototype; check its limits and your credit before choosing a paid plan.
+3. In the App Service configuration, add these application settings:
+
+   | Name | Value |
+   | --- | --- |
+   | `YouTube__ApiKey` | Your YouTube Data API key |
+   | `YouTube__OAuthClientId` | Your Google OAuth client ID (optional) |
+   | `YouTube__OAuthClientSecret` | Your Google OAuth client secret (optional) |
+   | `Ttube__BaseUrl` | `https://YOUR_APP_NAME.azurewebsites.net` |
+
+   App Service settings are encrypted configuration; do not put credentials in the repository. Redis is optional for a single App Service instance; without it the app uses in-memory cache/state. Keep the app at one instance while using in-memory state.
+
+4. In the Azure Web App Overview, download its publish profile. In the GitHub repository, open **Settings → Secrets and variables → Actions** and add:
+   - Repository variable `AZURE_WEBAPP_NAME` with the exact Web App name.
+   - Repository secret `AZURE_WEBAPP_PUBLISH_PROFILE` with the complete downloaded publish-profile XML.
+
+5. If using subscription import, add `https://YOUR_APP_NAME.azurewebsites.net` as the authorized JavaScript origin and `https://YOUR_APP_NAME.azurewebsites.net/api/auth/google/callback` as the authorized redirect URI in the Google OAuth client. Then restart the App Service.
+6. Push a commit to `main`, or open **Actions → Build and deploy Ttube to Azure → Run workflow**. The workflow builds and deploys the app. Visit `https://YOUR_APP_NAME.azurewebsites.net/healthz`; it should return `ok`.
+7. If adding a custom domain, configure its DNS and HTTPS in App Service, update `Ttube__BaseUrl`, and update the Google OAuth origin and callback URI to the custom HTTPS domain.
+
+The publish-profile secret can deploy code to the app, so keep it private and rotate it if exposed. GitHub Pages is not used for this deployment.
+
 ## Before you start
 
 - A Linux VPS with Docker Engine and the Docker Compose plugin.
