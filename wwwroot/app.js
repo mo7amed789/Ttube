@@ -44,10 +44,11 @@
         knownChannelIds: Array.isArray(value.knownChannelIds) ? value.knownChannelIds.slice(0, 500) : [],
         notifications: Array.isArray(value.notifications) ? value.notifications.slice(0, 40) : [],
         watchHistory: Array.isArray(value.watchHistory) ? value.watchHistory.slice(0, 100) : [],
+        watchLater: Array.isArray(value.watchLater) ? value.watchLater.slice(0, 300) : [],
         lastUploadCheck: Number(value.lastUploadCheck) || 0
       };
     } catch {
-      return { smartSuggestions: true, uploadNotifications: false, videoMetaFont: 'default', videoMetaFontSize: 12, uploadBaselineReady: false, knownUploadIds: [], knownChannelIds: [], notifications: [], watchHistory: [], lastUploadCheck: 0 };
+      return { smartSuggestions: true, uploadNotifications: false, videoMetaFont: 'default', videoMetaFontSize: 12, uploadBaselineReady: false, knownUploadIds: [], knownChannelIds: [], notifications: [], watchHistory: [], watchLater: [], lastUploadCheck: 0 };
     }
   }
   function persist() { localStorage.setItem(STORE, JSON.stringify(channels)); }
@@ -56,6 +57,35 @@
     const entry = { ...video, watchedAt: new Date().toISOString() };
     settings.watchHistory = [entry, ...settings.watchHistory.filter(item => item.id !== video.id)].slice(0, 100);
     persistSettings();
+  }
+  function isWatchLater(videoId) { return settings.watchLater.some(item => item.id === videoId); }
+  function toggleWatchLater(video) {
+    const index = settings.watchLater.findIndex(item => item.id === video.id);
+    if (index >= 0) {
+      settings.watchLater.splice(index, 1);
+      notify('أُزيل الفيديو من المشاهدة لاحقًا');
+    } else {
+      settings.watchLater = [{ ...video, savedAt: new Date().toISOString() }, ...settings.watchLater].slice(0, 300);
+      notify('أُضيف الفيديو إلى المشاهدة لاحقًا');
+    }
+    persistSettings();
+    renderWatchLaterCount();
+    renderVideos();
+    renderSmartRecommendations();
+    updateWatchLaterButton(video);
+  }
+  function updateWatchLaterButton(video) {
+    const button = $('#watchLaterButton');
+    if (!button || !video) return;
+    const saved = isWatchLater(video.id);
+    button.textContent = saved ? '✓' : '＋';
+    button.setAttribute('aria-label', saved ? 'إزالة من المشاهدة لاحقًا' : 'إضافة إلى المشاهدة لاحقًا');
+    button.title = saved ? 'إزالة من المشاهدة لاحقًا' : 'مشاهدة لاحقًا';
+    button.classList.toggle('saved', saved);
+  }
+  function renderWatchLaterCount() {
+    const count = $('#watchLaterCount');
+    if (count) count.textContent = settings.watchLater.length.toLocaleString('ar-EG');
   }
   function applyVideoTypography() {
     const fonts = {
@@ -379,15 +409,15 @@
   function getVisibleVideos() {
     const query = $('#searchInput').value.trim();
     const terms = [...new Set(searchTokens(query))];
-    const sourceVideos = view === 'history' ? settings.watchHistory : videos;
-    let result = sourceVideos.filter(video => view === 'history' || !activeChannel || video.channelId === activeChannel);
+    const sourceVideos = view === 'history' ? settings.watchHistory : view === 'watchlater' ? settings.watchLater : videos;
+    let result = sourceVideos.filter(video => view === 'history' || view === 'watchlater' || !activeChannel || video.channelId === activeChannel);
     const getVideo = row => terms.length ? row.video : row;
     const text = row => { const video = getVideo(row); return `${video.title} ${video.description || ''} ${video.channelTitle}`.toLocaleLowerCase(); };
     if (terms.length) result = result.map(video => scoreVideoSearch(video, query, terms)).filter(Boolean);
     if (activeFilter === 'islamic') result = result.filter(v => /قران|تفسير|حديث|اسلام|فقه|عقيده|السيره|النبوي|دعوه|شريعه|islam|quran|hadith|tafsir/i.test(normalizeSearchText(text(v))));
     if (activeFilter === 'dotnet') result = result.filter(v => /dotnet|aspnet|csharp|سي شارب|برمجه|visual studio|كورس|دوره|تعلم البرمجه|programming|course/i.test(normalizeSearchText(text(v))));
     if (activeFilter === 'shorts') result = result.filter(row => Number(getVideo(row).durationSeconds) <= 180 && Number(getVideo(row).durationSeconds) > 0);
-    const newestFirst = (a, b) => Date.parse(view === 'history' ? b.watchedAt : b.publishedAt) - Date.parse(view === 'history' ? a.watchedAt : a.publishedAt);
+    const newestFirst = (a, b) => Date.parse(view === 'history' ? b.watchedAt : view === 'watchlater' ? b.savedAt : b.publishedAt) - Date.parse(view === 'history' ? a.watchedAt : view === 'watchlater' ? a.savedAt : a.publishedAt);
     if (terms.length) result.sort((a, b) => b.score - a.score || newestFirst(a.video, b.video));
     else result.sort(newestFirst);
     return terms.length ? result.map(row => row.video) : result;
@@ -409,7 +439,8 @@
     const channel = channels.find(c => c.id === v.channelId);
     const avatar = channel?.thumbnail ? `<img class="video-channel-avatar remote-avatar" data-avatar-fallback="${initials(v.channelTitle)}" data-fallback-class="video-channel-avatar channel-letter" src="${escapeHtml(proxyImage(channel.thumbnail))}" alt="">` : `<span class="video-channel-avatar channel-letter">${initials(v.channelTitle)}</span>`;
     const cardDate = v.watchedAt ? `شوهد ${formatDate(v.watchedAt)}` : formatDate(v.publishedAt);
-    return `<article class="video-card" data-video="${escapeHtml(v.id)}" role="button" tabindex="0" aria-label="شاهد: ${escapeHtml(v.title)}"><div class="video-thumb"><img loading="lazy" src="${escapeHtml(v.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/hqdefault.jpg`)}" alt=""><span class="video-duration">${escapeHtml(v.duration || '')}</span>${short ? '<span class="video-badge">قصير</span>' : ''}</div><div class="video-info">${avatar}<div class="video-meta"><div class="video-title">${escapeHtml(v.title)}</div><div class="video-subtitle"><span>${escapeHtml(v.channelTitle)}</span><span>·</span><span>${formatViews(v.views)}</span><span>·</span><span>${cardDate}</span></div></div></div></article>`;
+    const saved = isWatchLater(v.id);
+    return `<article class="video-card" data-video="${escapeHtml(v.id)}" role="button" tabindex="0" aria-label="شاهد: ${escapeHtml(v.title)}"><div class="video-thumb"><img loading="lazy" src="${escapeHtml(v.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/hqdefault.jpg`)}" alt=""><span class="video-duration">${escapeHtml(v.duration || '')}</span>${short ? '<span class="video-badge">قصير</span>' : ''}<button class="watch-later-card ${saved ? 'saved' : ''}" type="button" data-watch-later="${escapeHtml(v.id)}" aria-label="${saved ? 'إزالة من المشاهدة لاحقًا' : 'إضافة إلى المشاهدة لاحقًا'}" title="${saved ? 'إزالة من المشاهدة لاحقًا' : 'مشاهدة لاحقًا'}">${saved ? '✓' : '＋'}</button></div><div class="video-info">${avatar}<div class="video-meta"><div class="video-title">${escapeHtml(v.title)}</div><div class="video-subtitle"><span>${escapeHtml(v.channelTitle)}</span><span>·</span><span>${formatViews(v.views)}</span><span>·</span><span>${cardDate}</span></div></div></div></article>`;
   }
   function smartRecommendations() {
     if (!settings.smartSuggestions || view !== 'home' || videos.length < 2) return [];
@@ -439,6 +470,7 @@
     $('#smartGrid').innerHTML = recommendations.map(videoCardMarkup).join('');
     installAvatarFallbacks($('#smartGrid'));
     $('#smartGrid').querySelectorAll('.video-card').forEach(card => {
+      card.querySelector('[data-watch-later]')?.addEventListener('click', event => { event.stopPropagation(); const video = videos.find(item => item.id === card.dataset.video); if (video) toggleWatchLater(video); });
       const open = () => { const video = videos.find(item => item.id === card.dataset.video); if (video) openPlayer(video); };
       card.addEventListener('click', open);
       card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
@@ -533,6 +565,8 @@
       const query = $('#searchMode').value === 'local' ? $('#searchInput').value.trim() : '';
       $('#feedEmpty').innerHTML = view === 'history' && !query
         ? '<span>◷</span><b>سجل المشاهدة فارغ</b><p>الفيديوهات التي تفتحها ستظهر هنا، ويبقى السجل محفوظًا في هذا المتصفح.</p>'
+        : view === 'watchlater' && !query
+        ? '<span>＋</span><b>قائمة المشاهدة لاحقًا فارغة</b><p>اضغط زر ＋ على أي فيديو لحفظه هنا.</p>'
         : query
         ? `<span>⌕</span><b>ما لقينا نتائج لـ «${escapeHtml(query)}»</b><p>جرّب كلمات أقل أو اكتبها بالعربية أو الإنجليزية؛ البحث يرتّب أقرب النتائج من قنواتك.</p>`
         : '<span>⌕</span><b>لا توجد فيديوهات مطابقة</b><p>جرّب تغيير البحث أو أضف قنوات أخرى.</p>';
@@ -542,11 +576,12 @@
     renderSmartRecommendations();
     const more = $('#loadMoreVideos');
     const remaining = Math.max(0, result.length - videoLimit);
-    const hasMorePages = view !== 'history' && Object.keys(nextPageTokens).length > 0;
+    const hasMorePages = view !== 'history' && view !== 'watchlater' && Object.keys(nextPageTokens).length > 0;
     more.hidden = remaining === 0 && !hasMorePages;
     more.textContent = remaining ? `عرض المزيد (${remaining.toLocaleString('ar-EG')})` : 'تحميل المزيد من قنواتك';
     grid.querySelectorAll('.video-card').forEach(card => {
-      const open = () => { const source = view === 'history' ? settings.watchHistory : videos; const video = source.find(item => item.id === card.dataset.video); if (video) openPlayer(video); };
+      card.querySelector('[data-watch-later]')?.addEventListener('click', event => { event.stopPropagation(); const source = view === 'history' ? settings.watchHistory : view === 'watchlater' ? settings.watchLater : videos; const video = source.find(item => item.id === card.dataset.video); if (video) toggleWatchLater(video); });
+      const open = () => { const source = view === 'history' ? settings.watchHistory : view === 'watchlater' ? settings.watchLater : videos; const video = source.find(item => item.id === card.dataset.video); if (video) openPlayer(video); };
       card.addEventListener('click', open);
       card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
     });
@@ -579,6 +614,7 @@
     $('#minimizeWatch').setAttribute('aria-label', 'تصغير الفيديو');
     $('#minimizeWatch').title = 'تصغير';
     currentVideo = video; commentsNextPage = null;
+    updateWatchLaterButton(video);
     recordWatchHistory(video);
     $('#watchTitle').textContent = video.title;
     $('#miniWatchTitle').textContent = video.title;
@@ -707,10 +743,10 @@
   }
   function setView(next) {
     const reloadAllChannels = next === 'home' && activeChannel !== null;
-    if (next === 'home' || next === 'history') {
+    if (next === 'home' || next === 'history' || next === 'watchlater') {
       $('#searchInput').value = '';
       $('#searchMode').value = 'local';
-      $('#searchInput').placeholder = next === 'history' ? 'ابحث في سجل المشاهدة…' : 'ابحث في قنواتك…';
+      $('#searchInput').placeholder = next === 'history' ? 'ابحث في سجل المشاهدة…' : next === 'watchlater' ? 'ابحث في المشاهدة لاحقًا…' : 'ابحث في قنواتك…';
       $('#searchSubmit').hidden = true; $('#externalSearchResults').hidden = true; externalChannels = [];
     }
     if (next === 'home') activeChannel = null;
@@ -719,9 +755,9 @@
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === next));
     activeFilter = next === 'shorts' ? 'shorts' : next === 'courses' ? 'dotnet' : 'all';
     document.querySelectorAll('.filter-chip').forEach(item => item.classList.toggle('selected', item.dataset.filter === activeFilter));
-    $('#feedHeading').textContent = next === 'history' ? 'سجل المشاهدة' : activeChannel ? channels.find(channel => channel.id === activeChannel)?.title || 'من قنواتك' : 'من قنواتك';
-    $('#pageSubtitle').textContent = next === 'history' ? 'الفيديوهات التي شاهدتها، محفوظة في هذا المتصفح فقط.' : next === 'courses' ? 'دورات ومسارات من القنوات التي أضفتها.' : next === 'shorts' ? 'مقاطع قصيرة من قنواتك فقط.' : next === 'latest' ? 'أحدث الفيديوهات من قنواتك.' : channels.length ? 'فيديوهات من القنوات التي اخترتها.' : 'محتوى تحبه، من مصادر اخترتها بنفسك.';
-    $('#feedKicker').textContent = next === 'history' ? 'ما شاهدته مؤخرًا' : next === 'courses' ? 'مسارات من اختيارك' : next === 'shorts' ? 'لقطات قصيرة من قنواتك' : next === 'latest' ? 'أحدث الرفعات من قنواتك' : 'اختيرت لك';
+    $('#feedHeading').textContent = next === 'history' ? 'سجل المشاهدة' : next === 'watchlater' ? 'المشاهدة لاحقًا' : activeChannel ? channels.find(channel => channel.id === activeChannel)?.title || 'من قنواتك' : 'من قنواتك';
+    $('#pageSubtitle').textContent = next === 'history' ? 'الفيديوهات التي شاهدتها، محفوظة في هذا المتصفح فقط.' : next === 'watchlater' ? 'فيديوهات حفظتها لتعود إليها لاحقًا.' : next === 'courses' ? 'دورات ومسارات من القنوات التي أضفتها.' : next === 'shorts' ? 'مقاطع قصيرة من قنواتك فقط.' : next === 'latest' ? 'أحدث الفيديوهات من قنواتك.' : channels.length ? 'فيديوهات من القنوات التي اخترتها.' : 'محتوى تحبه، من مصادر اخترتها بنفسك.';
+    $('#feedKicker').textContent = next === 'history' ? 'ما شاهدته مؤخرًا' : next === 'watchlater' ? 'قائمتك المحفوظة' : next === 'courses' ? 'مسارات من اختيارك' : next === 'shorts' ? 'لقطات قصيرة من قنواتك' : next === 'latest' ? 'أحدث الرفعات من قنواتك' : 'اختيرت لك';
     renderChannels(); renderVideos(); closeSidebar();
     if (reloadAllChannels) loadFeed();
   }
@@ -869,6 +905,12 @@
   $('#closeModal').addEventListener('click', closeModal);
   $('#channelModal').addEventListener('click', event => { if (event.target === $('#channelModal')) closeModal(); });
   $('#closeWatch').addEventListener('click', closePlayer);
+  if (!$('#watchLaterButton')) {
+    const button = document.createElement('button');
+    button.id = 'watchLaterButton'; button.className = 'watch-later-player'; button.type = 'button';
+    button.addEventListener('click', () => { if (currentVideo) toggleWatchLater(currentVideo); });
+    $('#fullscreenWatch').before(button);
+  }
   $('#fullscreenWatch').addEventListener('click', toggleVideoFullscreen);
   $('#playerFrame').addEventListener('click', event => {
     if (event.target.id === 'exitFullscreenOverlay') toggleVideoFullscreen();
@@ -1036,6 +1078,7 @@
     if (video) { $('#notificationsPanel').hidden = true; $('#notificationsButton').setAttribute('aria-expanded', 'false'); openPlayer(video); }
   });
   renderNotifications();
+  renderWatchLaterCount();
   setInterval(() => checkForUploads(), 4 * 60 * 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUploads(); });
   $('#menuButton').addEventListener('click', () => {
