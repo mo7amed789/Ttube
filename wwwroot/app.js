@@ -435,13 +435,25 @@
   function formatDate(value) {
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return '';
-    return new Intl.DateTimeFormat('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+    const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+    if (seconds < 60) return 'الآن';
+    const relative = new Intl.RelativeTimeFormat('ar-EG', { numeric: 'auto' });
+    for (const [unit, size] of [['year', 31536000], ['month', 2592000], ['day', 86400], ['hour', 3600], ['minute', 60]]) {
+      if (seconds >= size) return relative.format(-Math.floor(seconds / size), unit);
+    }
+    return 'الآن';
+  }
+  function relativeDateMarkup(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    const exact = new Intl.DateTimeFormat('ar-EG', { dateStyle: 'full', timeStyle: 'short' }).format(date);
+    return `<time datetime="${date.toISOString()}" title="${escapeHtml(exact)}" data-relative-date>${formatDate(value)}</time>`;
   }
   function videoCardMarkup(v) {
     const short = Number(v.durationSeconds) > 0 && Number(v.durationSeconds) <= 180;
     const channel = channels.find(c => c.id === v.channelId);
     const avatar = channel?.thumbnail ? `<img class="video-channel-avatar remote-avatar" data-avatar-fallback="${initials(v.channelTitle)}" data-fallback-class="video-channel-avatar channel-letter" src="${escapeHtml(proxyImage(channel.thumbnail))}" alt="">` : `<span class="video-channel-avatar channel-letter">${initials(v.channelTitle)}</span>`;
-    const cardDate = v.watchedAt ? `شوهد ${formatDate(v.watchedAt)}` : formatDate(v.publishedAt);
+    const cardDate = view === 'history' && v.watchedAt ? `شوهد ${relativeDateMarkup(v.watchedAt)}` : relativeDateMarkup(v.publishedAt);
     const saved = isWatchLater(v.id);
     return `<article class="video-card" data-video="${escapeHtml(v.id)}" role="button" tabindex="0" aria-label="شاهد: ${escapeHtml(v.title)}"><div class="video-thumb"><img loading="lazy" src="${escapeHtml(v.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/hqdefault.jpg`)}" alt=""><span class="video-duration">${escapeHtml(v.duration || '')}</span>${short ? '<span class="video-badge">قصير</span>' : ''}<button class="watch-later-card ${saved ? 'saved' : ''}" type="button" data-watch-later="${escapeHtml(v.id)}" aria-label="${saved ? 'إزالة من المشاهدة لاحقًا' : 'إضافة إلى المشاهدة لاحقًا'}" title="${saved ? 'إزالة من المشاهدة لاحقًا' : 'مشاهدة لاحقًا'}">${saved ? '✓' : '＋'}</button></div><div class="video-info">${avatar}<div class="video-meta"><div class="video-title">${escapeHtml(v.title)}</div><div class="video-subtitle"><span>${escapeHtml(v.channelTitle)}</span><span>·</span><span>${formatViews(v.views)}</span><span>·</span><span>${cardDate}</span></div></div></div></article>`;
   }
@@ -623,6 +635,7 @@
     $('#miniWatchTitle').textContent = video.title;
     $('#watchChannel').textContent = video.channelTitle;
     $('#watchStats').textContent = `${formatViews(video.views)} · ${formatDate(video.publishedAt)}`;
+    $('#watchStats').title = Number.isFinite(Date.parse(video.publishedAt)) ? new Intl.DateTimeFormat('ar-EG', { dateStyle: 'full', timeStyle: 'short' }).format(new Date(video.publishedAt)) : '';
     const youtubeUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}`;
     $('#watchOnYouTube').href = youtubeUrl;
     $('#miniWatchOnYouTube').href = youtubeUrl;
@@ -1148,6 +1161,10 @@
   applyVideoTypography();
   syncSidebarButton();
   updateClock(); setInterval(updateClock, 1000);
+  setInterval(() => {
+    document.querySelectorAll('[data-relative-date]').forEach(element => { element.textContent = formatDate(element.dateTime); });
+    if (currentVideo) $('#watchStats').textContent = `${formatViews(currentVideo.views)} · ${formatDate(currentVideo.publishedAt)}`;
+  }, 60000);
   setInterval(() => { if (savedLocation) loadLocationDashboard(savedLocation, { weather: true, prayer: false }); }, 30 * 60 * 1000);
   setInterval(() => { if (savedLocation) loadLocationDashboard(savedLocation, { weather: false, prayer: true }); }, 6 * 60 * 60 * 1000);
   if (savedLocation) {
