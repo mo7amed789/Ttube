@@ -660,7 +660,9 @@
       $('#minimizeWatch').hidden = true;
       $('#fullscreenWatch').hidden = true;
     } else {
-      $('#playerFrame').innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.id)}?autoplay=1&rel=0&playsinline=1&controls=1&fs=1" title="${escapeHtml(video.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><button class="fullscreen-exit" id="exitFullscreenOverlay" type="button" aria-label="إنهاء ملء الشاشة" title="إنهاء ملء الشاشة">×</button>`;
+      const embedOrigin = window.location.origin;
+      const embedQuery = new URLSearchParams({ autoplay: '1', rel: '0', playsinline: '1', controls: '1', fs: '1', origin: embedOrigin, widget_referrer: window.location.href }).toString();
+      $('#playerFrame').innerHTML = `<iframe src="https://www.youtube.com/embed/${encodeURIComponent(video.id)}?${embedQuery}" title="${escapeHtml(video.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><button class="fullscreen-exit" id="exitFullscreenOverlay" type="button" aria-label="إنهاء ملء الشاشة" title="إنهاء ملء الشاشة">×</button>`;
       $('#minimizeWatch').hidden = false;
       $('#fullscreenWatch').hidden = false;
     }
