@@ -28,6 +28,8 @@
   let feedRetryTimer = null;
   let feedRetryAttempt = 0;
   let feedLastSuccess = 0;
+  let feedAbortController = null;
+  let feedInFlightKey = '';
   let savedLocation = readLocation();
 
   function readChannels() {
@@ -244,8 +246,15 @@
     });
     list.querySelectorAll('[data-remove]').forEach(button => button.addEventListener('click', (event) => {
       event.stopPropagation(); const channel = channels[Number(button.dataset.remove)];
+      if (!channel) return;
       channels.splice(Number(button.dataset.remove), 1); if (activeChannel === channel.id) activeChannel = null;
-      persist(); renderChannels(); loadFeed(); notify(`تم حذف ${channel.title} من قنواتك`);
+      // Remove the channel's in-memory feed immediately so stale cards and smart suggestions disappear.
+      feedRequestId++;
+      feedAbortController?.abort();
+      feedAbortController = null; feedInFlightKey = '';
+      videos = videos.filter(video => video.channelId !== channel.id);
+      nextPageTokens = {};
+      persist(); renderChannels(); renderVideos(); loadFeed(); notify(`تم حذف ${channel.title} من قنواتك`);
     }));
     installAvatarFallbacks(list);
     $('#channelEntry').hidden = channels.length > 0;
@@ -413,7 +422,8 @@
     const query = $('#searchInput').value.trim();
     const terms = [...new Set(searchTokens(query))];
     const sourceVideos = view === 'history' ? settings.watchHistory : view === 'watchlater' ? settings.watchLater : videos;
-    let result = sourceVideos.filter(video => view === 'history' || view === 'watchlater' || !activeChannel || video.channelId === activeChannel);
+    const allowedIds = new Set(channels.filter(channel => channel.id).map(channel => channel.id));
+    let result = sourceVideos.filter(video => view === 'history' || view === 'watchlater' || (allowedIds.has(video.channelId) && (!activeChannel || video.channelId === activeChannel)));
     const getVideo = row => terms.length ? row.video : row;
     const text = row => { const video = getVideo(row); return `${video.title} ${video.description || ''} ${video.channelTitle}`.toLocaleLowerCase(); };
     if (terms.length) result = result.map(video => scoreVideoSearch(video, query, terms)).filter(Boolean);
@@ -466,7 +476,8 @@
     for (const seed of seeds) for (const term of contentTerms(`${seed.title} ${(seed.description || '').slice(0, 500)}`))
       documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
     const idf = term => Math.log(1 + seeds.length / (1 + (documentFrequency.get(term) || 0)));
-    const scored = videos.filter(video => !seedIds.has(video.id)).map(video => {
+    const allowedIds = new Set(channels.filter(channel => channel.id).map(channel => channel.id));
+    const scored = videos.filter(video => allowedIds.has(video.channelId) && !seedIds.has(video.id)).map(video => {
       const terms = contentTerms(`${video.title} ${(video.description || '').slice(0, 500)}`);
       let score = 0;
       for (const term of terms) if (documentFrequency.has(term)) score += idf(term);
@@ -781,7 +792,7 @@
     clearTimeout(feedRetryTimer);
     const delay = Math.min(300000, Math.round(8000 * Math.pow(1.6, feedRetryAttempt++)));
     feedRetryTimer = setTimeout(() => {
-      if (!document.hidden && channels.some(channel => channel.id)) loadFeed({ background: true });
+      if (!document.hidden && navigator.onLine !== false && channels.some(channel => channel.id)) loadFeed({ background: true });
     }, delay);
   }
   async function loadFeed({ background = false } = {}) {
@@ -798,21 +809,32 @@
       showFeedMessage('قناتك محفوظة في متصفحك', 'أضف YouTube Data API key إلى إعدادات الخادم. ستُحمّل الفيديوهات تلقائيًا عند تحديث الصفحة.');
       renderVideos(); return;
     }
+    const requestKey = `${activeChannel || 'all'}:${ids.join(',')}`;
+    if (feedInFlightKey === requestKey && feedAbortController) return;
+    feedAbortController?.abort();
+    const abortController = new AbortController();
+    feedAbortController = abortController;
+    feedInFlightKey = requestKey;
     $('#feedHeading').textContent = background && videos.length ? 'نحدّث فيديوهات قنواتك…' : 'جارٍ تحميل فيديوهات قنواتك…';
     if (!videos.length) { $('#videoGrid').innerHTML = ''; $('#loadMoreVideos').hidden = true; showFeedMessage('جارٍ تحميل الفيديوهات…', 'قد يحتاج الخادم لحظات ليستيقظ، وسنحاول تلقائيًا.', true); }
     try {
-      const response = await fetch('/api/feed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelIds: ids }) });
+      const timeout = setTimeout(() => abortController.abort(), 25000);
+      let response;
+      try {
+        response = await fetch('/api/feed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelIds: ids }), signal: abortController.signal });
+      } finally { clearTimeout(timeout); }
       if (requestId !== feedRequestId) return;
       if (!response.ok) {
         let detail = ''; try { detail = (await response.json()).detail || ''; } catch {}
         if (requestId !== feedRequestId) return;
-        if (response.status === 502 || response.status === 503 || response.status === 504) {
+        const retryable = [408, 425, 429, 500, 502, 503, 504].includes(response.status);
+        const missingKey = response.status === 503 && /api key|مفتاح/i.test(detail);
+        if (retryable && !missingKey) {
           if (videos.length) { $('#feedHeading').textContent = 'نحاول إعادة الاتصال بالخادم…'; }
           else showFeedMessage('الخادم يستيقظ الآن…', 'سنحاول تلقائيًا مرة أخرى خلال لحظات.', true);
           scheduleFeedRetry();
           return;
         }
-        videos = []; renderVideos();
         if (response.status === 503) $('#feedHeading').textContent = 'أضف مفتاح YouTube API لعرض الفيديوهات';
         else if (response.status === 413) $('#feedHeading').textContent = 'قلّل عدد القنوات المحمّلة في وقت واحد';
         else $('#feedHeading').textContent = 'تعذّر تحميل الفيديوهات';
@@ -832,11 +854,14 @@
       $('#feedHeading').textContent = activeChannel ? channels.find(c => c.id === activeChannel)?.title || 'من قنواتك' : 'من قنواتك';
       $('#feedEmpty').innerHTML = '<span>⌕</span><b>لا توجد فيديوهات مطابقة</b><p>جرّب تغيير البحث أو أضف قنوات أخرى.</p>';
       renderVideos();
-    } catch {
+    } catch (error) {
       if (requestId !== feedRequestId) return;
+      if (error?.name === 'AbortError' && abortController.signal.aborted && feedAbortController !== abortController) return;
       if (videos.length) $('#feedHeading').textContent = 'نحاول إعادة الاتصال بالخادم…';
       else showFeedMessage('الخادم يستيقظ الآن…', 'سنحاول تلقائيًا مرة أخرى خلال لحظات.', true);
       scheduleFeedRetry();
+    } finally {
+      if (feedAbortController === abortController) { feedAbortController = null; feedInFlightKey = ''; }
     }
   }
   async function loadNextFeedPage() {
@@ -1115,6 +1140,9 @@
     if (document.hidden) return;
     checkForUploads();
     if (channels.some(channel => channel.id) && (!feedLastSuccess || Date.now() - feedLastSuccess > 2 * 60 * 1000)) loadFeed({ background: true });
+  });
+  window.addEventListener('online', () => {
+    if (channels.some(channel => channel.id)) { feedRetryAttempt = 0; loadFeed({ background: true }); }
   });
   $('#menuButton').addEventListener('click', () => {
     if (window.matchMedia('(max-width: 760px)').matches) $('#sidebar').classList.toggle('open');
