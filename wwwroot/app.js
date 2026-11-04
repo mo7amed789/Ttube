@@ -19,6 +19,8 @@
   let notificationChannelFilter = null;
   let channelNotificationsPending = false;
   let playerIdleTimer = null;
+  let youtubeApiPromise = null;
+  let youtubePlayer = null;
   let externalSearchRequestId = 0;
   let externalChannels = [];
   let relatedDiscoveryActive = false;
@@ -634,6 +636,7 @@
     $('#suggestedList').innerHTML = suggestions.length ? suggestions.map(item => `<button class="suggested-video" data-watch="${escapeHtml(item.id)}"><span class="suggested-thumb"><img loading="lazy" src="${escapeHtml(item.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(item.id)}/hqdefault.jpg`)}" alt=""><span class="suggested-duration">${escapeHtml(item.duration || '')}</span></span><span class="suggested-info"><span class="suggested-title">${escapeHtml(item.title)}</span><span class="suggested-meta">${escapeHtml(item.channelTitle)}<br>${formatViews(item.views)}</span></span></button>`).join('') : '<div class="comments-message">أضف المزيد من قنواتك لتظهر لك اقتراحات إضافية.</div>';
   }
   function openPlayer(video) {
+    youtubePlayer?.destroy?.(); youtubePlayer = null;
     $('#miniPlayerFrame').replaceChildren(); $('#miniPlayer').hidden = true;
     $('#watchModal').classList.remove('mini-watch');
     $('#minimizeWatch').textContent = '−';
@@ -662,9 +665,10 @@
     } else {
       const embedOrigin = window.location.origin;
       const embedQuery = new URLSearchParams({ autoplay: '1', rel: '0', playsinline: '1', controls: '1', fs: '1', origin: embedOrigin, widget_referrer: window.location.href }).toString();
-      $('#playerFrame').innerHTML = `<iframe src="https://www.youtube.com/embed/${encodeURIComponent(video.id)}?${embedQuery}" title="${escapeHtml(video.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><button class="fullscreen-exit" id="exitFullscreenOverlay" type="button" aria-label="إنهاء ملء الشاشة" title="إنهاء ملء الشاشة">×</button>`;
+      $('#playerFrame').innerHTML = `<iframe id="youtubePlayerFrame" src="https://www.youtube.com/embed/${encodeURIComponent(video.id)}?${embedQuery}&enablejsapi=1" title="${escapeHtml(video.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><button class="fullscreen-exit" id="exitFullscreenOverlay" type="button" aria-label="إنهاء ملء الشاشة" title="إنهاء ملء الشاشة">×</button>`;
       $('#minimizeWatch').hidden = false;
       $('#fullscreenWatch').hidden = false;
+      observeYouTubePlayer(video);
     }
     $('#playerFrame').querySelector('iframe')?.addEventListener('pointerenter', resetPlayerCursorTimer);
     $('#playerFrame').querySelector('iframe')?.addEventListener('pointerleave', resetPlayerCursorTimer);
@@ -672,6 +676,42 @@
     resetPlayerCursorTimer();
     renderSuggestions(video);
     loadComments(video.id, false);
+  }
+  function ensureYouTubeApi() {
+    if (window.YT?.Player) return Promise.resolve();
+    if (youtubeApiPromise) return youtubeApiPromise;
+    youtubeApiPromise = new Promise((resolve, reject) => {
+      const previous = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { previous?.(); resolve(); };
+      const script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api'; script.async = true;
+      script.onerror = () => { youtubeApiPromise = null; reject(new Error('YouTube player API unavailable')); };
+      document.head.appendChild(script);
+    });
+    return youtubeApiPromise;
+  }
+  function showPlayerFallback(video, reason = 'embed') {
+    if (currentVideo?.id !== video.id) return;
+    youtubePlayer?.destroy?.(); youtubePlayer = null;
+    const message = reason === 'restricted'
+      ? 'يتطلب هذا الفيديو التحقق من YouTube أو تسجيل الدخول.'
+      : 'لا يسمح صاحب الفيديو بتشغيله داخل المواقع الأخرى.';
+    const detail = reason === 'restricted'
+      ? 'افتحه في YouTube لإكمال التحقق ثم شاهد الفيديو من هناك.'
+      : 'يمكنك فتحه مباشرة على YouTube لمشاهدته.';
+    const youtubeUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}`;
+    $('#playerFrame').innerHTML = `<div class="embed-fallback"><span class="restricted-mark">YouTube</span><b>${message}</b><p>${detail}</p><a href="${youtubeUrl}" target="_blank" rel="noopener noreferrer">فتح الفيديو على YouTube ↗</a></div>`;
+    $('#minimizeWatch').hidden = true; $('#fullscreenWatch').hidden = true;
+  }
+  function observeYouTubePlayer(video) {
+    const iframe = $('#youtubePlayerFrame');
+    if (!iframe) return;
+    ensureYouTubeApi().then(() => {
+      if (currentVideo?.id !== video.id || !document.contains(iframe)) return;
+      youtubePlayer = new window.YT.Player(iframe, { events: {
+        onError: event => showPlayerFallback(video, [100, 101, 150, 153].includes(Number(event.data)) ? 'embed' : 'restricted')
+      }});
+    }).catch(() => { /* The iframe remains usable even if the optional API monitor is unavailable. */ });
   }
   function minimizePlayer() {
     const iframe = $('#playerFrame').querySelector('iframe');
@@ -698,6 +738,7 @@
     $('#watchModal').setAttribute('aria-modal', 'true');
     $('#watchModal').classList.remove('mini-watch');
     $('#watchModal').classList.remove('cursor-idle');
+    youtubePlayer?.destroy?.(); youtubePlayer = null;
     $('#playerFrame').replaceChildren(); $('#miniPlayerFrame').replaceChildren();
     currentVideo = null; commentsNextPage = null;
     if (view === 'history') renderVideos();
