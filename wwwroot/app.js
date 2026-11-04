@@ -25,6 +25,9 @@
   let exploreSearchActive = false;
   let toastTimer;
   let uploadCheckRunning = false;
+  let feedRetryTimer = null;
+  let feedRetryAttempt = 0;
+  let feedLastSuccess = 0;
   let savedLocation = readLocation();
 
   function readChannels() {
@@ -761,7 +764,14 @@
     renderChannels(); renderVideos(); closeSidebar();
     if (reloadAllChannels) loadFeed();
   }
-  async function loadFeed() {
+  function scheduleFeedRetry() {
+    clearTimeout(feedRetryTimer);
+    const delay = Math.min(300000, Math.round(8000 * Math.pow(1.6, feedRetryAttempt++)));
+    feedRetryTimer = setTimeout(() => {
+      if (!document.hidden && channels.some(channel => channel.id)) loadFeed({ background: true });
+    }, delay);
+  }
+  async function loadFeed({ background = false } = {}) {
     const requestId = ++feedRequestId;
     const notifyChannelId = channelNotificationsPending ? activeChannel : null;
     channelNotificationsPending = false;
@@ -775,15 +785,20 @@
       showFeedMessage('قناتك محفوظة في متصفحك', 'أضف YouTube Data API key إلى إعدادات الخادم. ستُحمّل الفيديوهات تلقائيًا عند تحديث الصفحة.');
       renderVideos(); return;
     }
-    $('#feedHeading').textContent = 'جارٍ تحميل فيديوهات قنواتك…';
-    videos = []; $('#videoGrid').innerHTML = ''; $('#loadMoreVideos').hidden = true;
-    showFeedMessage('جارٍ تحميل الفيديوهات…', 'نجهّز أحدث الفيديوهات من قنواتك.', true);
+    $('#feedHeading').textContent = background && videos.length ? 'نحدّث فيديوهات قنواتك…' : 'جارٍ تحميل فيديوهات قنواتك…';
+    if (!videos.length) { $('#videoGrid').innerHTML = ''; $('#loadMoreVideos').hidden = true; showFeedMessage('جارٍ تحميل الفيديوهات…', 'قد يحتاج الخادم لحظات ليستيقظ، وسنحاول تلقائيًا.', true); }
     try {
       const response = await fetch('/api/feed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelIds: ids }) });
       if (requestId !== feedRequestId) return;
       if (!response.ok) {
         let detail = ''; try { detail = (await response.json()).detail || ''; } catch {}
         if (requestId !== feedRequestId) return;
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          if (videos.length) { $('#feedHeading').textContent = 'نحاول إعادة الاتصال بالخادم…'; }
+          else showFeedMessage('الخادم يستيقظ الآن…', 'سنحاول تلقائيًا مرة أخرى خلال لحظات.', true);
+          scheduleFeedRetry();
+          return;
+        }
         videos = []; renderVideos();
         if (response.status === 503) $('#feedHeading').textContent = 'أضف مفتاح YouTube API لعرض الفيديوهات';
         else if (response.status === 413) $('#feedHeading').textContent = 'قلّل عدد القنوات المحمّلة في وقت واحد';
@@ -797,6 +812,7 @@
       nextPageTokens = feedPage.nextPageTokens || {};
       feedPageSize = feedPage.pageSize || 20;
       videos = loadedVideos;
+      feedRetryAttempt = 0; feedLastSuccess = Date.now(); clearTimeout(feedRetryTimer); feedRetryTimer = null;
       // A manual feed/channel load should update the in-app baseline without firing a burst of desktop alerts.
       processUploadBatch(loadedVideos, channels.filter(channel => channel.id).map(channel => channel.id), true);
       if (notifyChannelId && notifyChannelId === activeChannel) showLatestChannelNotifications(notifyChannelId, loadedVideos);
@@ -805,8 +821,9 @@
       renderVideos();
     } catch {
       if (requestId !== feedRequestId) return;
-      $('#feedHeading').textContent = 'تعذّر الاتصال بالخادم'; videos = []; renderVideos();
-      showFeedMessage('الخادم غير متاح الآن', 'تحقق من تشغيل Ttube ثم اضغط تحديث الفيديوهات.');
+      if (videos.length) $('#feedHeading').textContent = 'نحاول إعادة الاتصال بالخادم…';
+      else showFeedMessage('الخادم يستيقظ الآن…', 'سنحاول تلقائيًا مرة أخرى خلال لحظات.', true);
+      scheduleFeedRetry();
     }
   }
   async function loadNextFeedPage() {
@@ -1080,7 +1097,12 @@
   renderNotifications();
   renderWatchLaterCount();
   setInterval(() => checkForUploads(), 4 * 60 * 60 * 1000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUploads(); });
+  setInterval(() => { if (!document.hidden && channels.some(channel => channel.id) && Date.now() - feedLastSuccess > 10 * 60 * 1000) loadFeed({ background: true }); }, 10 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    checkForUploads();
+    if (channels.some(channel => channel.id) && (!feedLastSuccess || Date.now() - feedLastSuccess > 2 * 60 * 1000)) loadFeed({ background: true });
+  });
   $('#menuButton').addEventListener('click', () => {
     if (window.matchMedia('(max-width: 760px)').matches) $('#sidebar').classList.toggle('open');
     else document.body.classList.toggle('sidebar-hidden');
