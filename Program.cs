@@ -6,7 +6,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Caching.Distributed;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +20,33 @@ builder.Services.AddResponseCompression(options =>
 });
 builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
+builder.Services.AddProblemDetails();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // The public deployment terminates TLS at its reverse proxy. The proxy network is
+    // isolated from the application containers, so forwarded headers are trusted here.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        if (!context.Request.Path.StartsWithSegments("/api"))
+            return RateLimitPartition.GetNoLimiter("non-api");
+
+        var client = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(client, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
+    });
+});
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
 if (string.IsNullOrWhiteSpace(redisConnection)) builder.Services.AddDistributedMemoryCache();
 else builder.Services.AddStackExchangeRedisCache(options =>
@@ -43,11 +72,42 @@ builder.Services.AddHttpClient<ThumbnailProxyClient>(client => client.Timeout = 
 builder.Services.AddSingleton<ChannelImportStore>();
 
 var app = builder.Build();
+if (app.Configuration.GetValue<bool>("Ttube:TrustForwardedHeaders"))
+    app.UseForwardedHeaders();
+app.UseExceptionHandler();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.TryAdd("X-Frame-Options", "SAMEORIGIN");
+    context.Response.Headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=(self), payment=()");
+    context.Response.Headers.TryAdd("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    await next();
+});
+app.UseRateLimiter();
 app.UseDefaultFiles();
 app.UseResponseCompression();
 app.UseStaticFiles();
 
 app.MapGet("/healthz", () => Results.Text("ok", "text/plain"));
+app.MapGet("/readyz", async (IDistributedCache cache, CancellationToken ct) =>
+{
+    try
+    {
+        var key = "ttube:readiness:" + Guid.NewGuid().ToString("N");
+        await cache.SetStringAsync(key, "ok", new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10)
+        }, ct);
+        var value = await cache.GetStringAsync(key, ct);
+        await cache.RemoveAsync(key, ct);
+        return value == "ok" ? Results.Text("ready", "text/plain") : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+    catch
+    {
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+});
 
 app.MapGet("/api/status", (IConfiguration config) => Results.Ok(new
 {
@@ -168,8 +228,10 @@ app.MapPost("/api/feed", async Task<IResult> (FeedRequest request, YouTubeDataCl
     if (ids.Length > 500) return Results.Problem("This feed supports up to 500 selected channels at a time.", statusCode: 413);
     if (ids.Length == 0) return Results.Ok(new FeedPage([], new Dictionary<string, string>(), 20));
     var pageTokens = (request.PageTokens ?? new Dictionary<string, string>())
-        .Where(pair => ids.Contains(pair.Key, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(pair.Value))
+        .Where(pair => ids.Contains(pair.Key, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(pair.Value) && pair.Value.Length <= 512)
         .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+    if ((request.PageTokens?.Count ?? 0) > 500)
+        return Results.BadRequest(new { detail = "Too many page tokens." });
     int? pageSize = request.PageSize is null ? null : Math.Clamp(request.PageSize.Value, 1, 20);
     var cacheKey = FeedCacheKey(ids, pageTokens, pageSize);
     try

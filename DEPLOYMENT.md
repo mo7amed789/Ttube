@@ -58,6 +58,8 @@ The publish-profile secret can deploy code to the app, so keep it private and ro
 
    Set `YOUTUBE_API_KEY`, `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, and `TTUBE_BASE_URL=https://YOUR_DOMAIN`. If subscription import is not enabled, the two OAuth values can remain empty.
 
+   When the app is behind the included Nginx proxy, also set `TTUBE_TRUST_FORWARDED_HEADERS=true`. Leave it `false` when the application is directly exposed without a trusted reverse proxy.
+
 4. Start the app stack:
 
    ```sh
@@ -83,7 +85,9 @@ The publish-profile secret can deploy code to the app, so keep it private and ro
 
 ## Operations and known limits
 
-- `/healthz` is a process-level liveness check. It does not prove Google API access or Redis health.
+- `/healthz` is a process-level liveness check. `/readyz` verifies the distributed cache used by feed caching and OAuth state; use it as the load-balancer readiness probe.
+- API routes have an application-level per-client rate limit of 60 requests per minute. The Nginx proxy adds an additional edge limit. If public traffic grows, move rate limiting to a shared gateway or distributed limiter so limits are consistent across instances.
+- Responses include baseline security headers, and exception details are converted to generic problem responses in production. Keep HTTPS termination in front of the app and do not expose Redis or the application container directly.
 - Compose runs two application processes on one VPS, so it is not multi-machine high availability. Redis in this stack is an ephemeral cache/state store; restarting it can expire pending subscription imports, which users can retry.
 - Set up VPS/provider backups for configuration, monitoring and alerts for CPU, memory, disk, container restarts, Google API quota, and TLS certificate renewal.
 - Ttube stores channel selections in each user's browser. There are no accounts or cross-device profile sync.

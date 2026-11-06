@@ -7,6 +7,7 @@ x-ttube-environment: &ttube-environment
   YouTube__OAuthClientId: ${YOUTUBE_OAUTH_CLIENT_ID:-}
   YouTube__OAuthClientSecret: ${YOUTUBE_OAUTH_CLIENT_SECRET:-}
   Ttube__BaseUrl: ${TTUBE_BASE_URL:-http://localhost:8080}
+  Ttube__TrustForwardedHeaders: ${TTUBE_TRUST_FORWARDED_HEADERS:-true}
 
 services:
   redis:
