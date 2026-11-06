@@ -82,6 +82,7 @@ app.Use(async (context, next) =>
     context.Response.Headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
     context.Response.Headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=(self), payment=()");
     context.Response.Headers.TryAdd("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    context.Response.Headers.TryAdd("Content-Security-Policy", "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com;");
     await next();
 });
 app.UseRateLimiter();
