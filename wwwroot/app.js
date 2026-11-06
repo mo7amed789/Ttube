@@ -6,6 +6,8 @@
   const THEME_STORE = 'ttube.theme.v1';
   let channels = readChannels();
   let settings = readSettings();
+  const previousVisitAt = Number(settings.lastVisitAt) || 0;
+  const sessionStartedAt = Date.now();
   let videos = [];
   let activeFilter = 'all';
   let activeChannel = null;
@@ -33,6 +35,7 @@
   let feedAbortController = null;
   let feedInFlightKey = '';
   let savedLocation = readLocation();
+  let sleepTimer = null;
 
   function readChannels() {
     try { const value = JSON.parse(localStorage.getItem(STORE) || '[]'); return Array.isArray(value) ? value : []; }
@@ -43,6 +46,7 @@
       const value = JSON.parse(localStorage.getItem(SETTINGS_STORE) || '{}');
       return {
         smartSuggestions: value.smartSuggestions !== false,
+        hiddenRecommendations: Array.isArray(value.hiddenRecommendations) ? value.hiddenRecommendations.slice(0, 200) : [],
         uploadNotifications: value.uploadNotifications === true,
         videoMetaFont: ['default', 'arial', 'tahoma', 'segoe'].includes(value.videoMetaFont) ? value.videoMetaFont : 'default',
         videoMetaFontSize: Math.min(16, Math.max(10, Number(value.videoMetaFontSize) || 12)),
@@ -52,10 +56,11 @@
         notifications: Array.isArray(value.notifications) ? value.notifications.slice(0, 40) : [],
         watchHistory: Array.isArray(value.watchHistory) ? value.watchHistory.slice(0, 100) : [],
         watchLater: Array.isArray(value.watchLater) ? value.watchLater.slice(0, 300) : [],
-        lastUploadCheck: Number(value.lastUploadCheck) || 0
+        lastUploadCheck: Number(value.lastUploadCheck) || 0,
+        lastVisitAt: Number(value.lastVisitAt) || 0
       };
     } catch {
-      return { smartSuggestions: true, uploadNotifications: false, videoMetaFont: 'default', videoMetaFontSize: 12, uploadBaselineReady: false, knownUploadIds: [], knownChannelIds: [], notifications: [], watchHistory: [], watchLater: [], lastUploadCheck: 0 };
+      return { smartSuggestions: true, hiddenRecommendations: [], uploadNotifications: false, videoMetaFont: 'default', videoMetaFontSize: 12, uploadBaselineReady: false, knownUploadIds: [], knownChannelIds: [], notifications: [], watchHistory: [], watchLater: [], lastUploadCheck: 0, lastVisitAt: 0 };
     }
   }
   function persist() { localStorage.setItem(STORE, JSON.stringify(channels)); }
@@ -461,13 +466,14 @@
     const exact = new Intl.DateTimeFormat('ar-EG', { dateStyle: 'full', timeStyle: 'short' }).format(date);
     return `<time datetime="${date.toISOString()}" title="${escapeHtml(exact)}" data-relative-date>${formatDate(value)}</time>`;
   }
-  function videoCardMarkup(v) {
+  function videoCardMarkup(v, options = {}) {
     const short = Number(v.durationSeconds) > 0 && Number(v.durationSeconds) <= 180;
     const channel = channels.find(c => c.id === v.channelId);
     const avatar = channel?.thumbnail ? `<img class="video-channel-avatar remote-avatar" data-avatar-fallback="${initials(v.channelTitle)}" data-fallback-class="video-channel-avatar channel-letter" src="${escapeHtml(proxyImage(channel.thumbnail))}" alt="">` : `<span class="video-channel-avatar channel-letter">${initials(v.channelTitle)}</span>`;
     const cardDate = view === 'history' && v.watchedAt ? `شوهد ${relativeDateMarkup(v.watchedAt)}` : relativeDateMarkup(v.publishedAt);
     const saved = isWatchLater(v.id);
-    return `<article class="video-card" data-video="${escapeHtml(v.id)}" role="button" tabindex="0" aria-label="شاهد: ${escapeHtml(v.title)}"><div class="video-thumb"><img loading="lazy" src="${escapeHtml(v.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/hqdefault.jpg`)}" alt=""><span class="video-duration">${escapeHtml(v.duration || '')}</span>${short ? '<span class="video-badge">قصير</span>' : ''}<button class="watch-later-card ${saved ? 'saved' : ''}" type="button" data-watch-later="${escapeHtml(v.id)}" aria-label="${saved ? 'إزالة من المشاهدة لاحقًا' : 'إضافة إلى المشاهدة لاحقًا'}" title="${saved ? 'إزالة من المشاهدة لاحقًا' : 'مشاهدة لاحقًا'}">${saved ? '✓' : '＋'}</button></div><div class="video-info">${avatar}<div class="video-meta"><div class="video-title">${escapeHtml(v.title)}</div><div class="video-subtitle"><span>${escapeHtml(v.channelTitle)}</span><span>·</span><span>${formatViews(v.views)}</span><span>·</span><span>${cardDate}</span></div></div></div></article>`;
+    const hide = options.recommendation ? '<button class="hide-recommendation" type="button" data-hide-recommendation aria-label="إخفاء هذا الاقتراح" title="إخفاء هذا الاقتراح">×</button>' : '';
+    return `<article class="video-card" data-video="${escapeHtml(v.id)}" role="button" tabindex="0" aria-label="شاهد: ${escapeHtml(v.title)}"><div class="video-thumb"><img loading="lazy" src="${escapeHtml(v.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/hqdefault.jpg`)}" alt=""><span class="video-duration">${escapeHtml(v.duration || '')}</span>${short ? '<span class="video-badge">قصير</span>' : ''}${hide}<button class="watch-later-card ${saved ? 'saved' : ''}" type="button" data-watch-later="${escapeHtml(v.id)}" aria-label="${saved ? 'إزالة من المشاهدة لاحقًا' : 'إضافة إلى المشاهدة لاحقًا'}" title="${saved ? 'إزالة من المشاهدة لاحقًا' : 'مشاهدة لاحقًا'}">${saved ? '✓' : '＋'}</button></div><div class="video-info">${avatar}<div class="video-meta"><div class="video-title">${escapeHtml(v.title)}</div><div class="video-subtitle"><span>${escapeHtml(v.channelTitle)}</span><span>·</span><span>${formatViews(v.views)}</span><span>·</span><span>${cardDate}</span></div></div></div></article>`;
   }
   function smartRecommendations() {
     if (!settings.smartSuggestions || view !== 'home' || videos.length < 2) return [];
@@ -493,16 +499,38 @@
   function renderSmartRecommendations() {
     const section = $('#smartRecommendations');
     if (!section) return;
-    const recommendations = smartRecommendations();
+    const recommendations = smartRecommendations().filter(video => !settings.hiddenRecommendations.includes(video.id));
     section.hidden = !settings.smartSuggestions || view !== 'home' || recommendations.length === 0;
-    $('#smartGrid').innerHTML = recommendations.map(videoCardMarkup).join('');
+    $('#smartGrid').innerHTML = recommendations.map(video => videoCardMarkup(video, { recommendation: true })).join('');
     installAvatarFallbacks($('#smartGrid'));
     $('#smartGrid').querySelectorAll('.video-card').forEach(card => {
       card.querySelector('[data-watch-later]')?.addEventListener('click', event => { event.stopPropagation(); const video = videos.find(item => item.id === card.dataset.video); if (video) toggleWatchLater(video); });
+      card.querySelector('[data-hide-recommendation]')?.addEventListener('click', event => { event.stopPropagation(); settings.hiddenRecommendations = [...new Set([...settings.hiddenRecommendations, card.dataset.video])].slice(-200); persistSettings(); renderSmartRecommendations(); notify('سأقلل هذا النوع من الاقتراحات'); });
       const open = () => { const video = videos.find(item => item.id === card.dataset.video); if (video) openPlayer(video); };
       card.addEventListener('click', open);
       card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
     });
+  }
+  function renderHomeHighlights() {
+    const section = $('#homeHighlights');
+    if (!section) return;
+    const visible = view === 'home' && channels.length > 0;
+    const continueItems = settings.watchHistory.slice().sort((a, b) => Date.parse(b.watchedAt) - Date.parse(a.watchedAt)).slice(0, 6);
+    const newItems = videos.filter(video => !previousVisitAt || Date.parse(video.publishedAt) > previousVisitAt).slice(0, 6);
+    section.hidden = !visible || (!continueItems.length && !newItems.length);
+    const continueSection = $('#continueWatching'); const newSection = $('#newSinceVisit');
+    continueSection.hidden = !continueItems.length;
+    newSection.hidden = !newItems.length;
+    const install = (root, items) => {
+      root.innerHTML = items.map(videoCardMarkup).join('');
+      root.querySelectorAll('.video-card').forEach(card => {
+        const item = items.find(video => video.id === card.dataset.video);
+        card.addEventListener('click', () => item && openPlayer(item));
+        card.querySelector('[data-watch-later]')?.addEventListener('click', event => { event.stopPropagation(); if (item) toggleWatchLater(item); });
+      });
+    };
+    install($('#continueGrid'), continueItems);
+    install($('#newGrid'), newItems);
   }
   function renderNotifications() {
     const unread = settings.notifications.filter(item => !item.read).length;
@@ -586,6 +614,7 @@
   }
   function renderVideos() {
     const grid = $('#videoGrid'); const result = getVisibleVideos();
+    renderHomeHighlights();
     $('#feedEmpty').classList.remove('is-loading');
     $('#shortCount').textContent = videos.filter(v => Number(v.durationSeconds) > 0 && Number(v.durationSeconds) <= 180).length.toLocaleString('ar-EG');
     $('#feedEmpty').hidden = result.length !== 0;
@@ -673,6 +702,7 @@
     $('#playerFrame').querySelector('iframe')?.addEventListener('pointerenter', resetPlayerCursorTimer);
     $('#playerFrame').querySelector('iframe')?.addEventListener('pointerleave', resetPlayerCursorTimer);
     $('#watchModal').hidden = false;
+    $('#immersiveControls').hidden = false;
     resetPlayerCursorTimer();
     renderSuggestions(video);
     loadComments(video.id, false);
@@ -735,6 +765,13 @@
   function closePlayer() {
     clearTimeout(playerIdleTimer); playerIdleTimer = null;
     $('#watchModal').hidden = true; $('#miniPlayer').hidden = true;
+    $('#immersiveControls').hidden = true;
+    document.body.classList.remove('cinema-mode');
+    $('#cinemaWatch').setAttribute('aria-pressed', 'false');
+    document.body.classList.remove('focus-listening');
+    $('#cinemaWatch').setAttribute('aria-pressed', 'false'); $('#focusWatch').setAttribute('aria-pressed', 'false');
+    if (sleepTimer) { clearTimeout(sleepTimer); sleepTimer = null; }
+    $('#sleepTimer').value = '0';
     $('#watchModal').setAttribute('aria-modal', 'true');
     $('#watchModal').classList.remove('mini-watch');
     $('#watchModal').classList.remove('cursor-idle');
@@ -742,6 +779,23 @@
     $('#playerFrame').replaceChildren(); $('#miniPlayerFrame').replaceChildren();
     currentVideo = null; commentsNextPage = null;
     if (view === 'history') renderVideos();
+  }
+  function toggleCinemaMode() {
+    const active = document.body.classList.toggle('cinema-mode');
+    $('#cinemaWatch').setAttribute('aria-pressed', String(active));
+    notify(active ? 'تم تشغيل وضع السينما' : 'تم إيقاف وضع السينما');
+  }
+  function toggleFocusMode() {
+    const active = document.body.classList.toggle('focus-listening');
+    $('#focusWatch').setAttribute('aria-pressed', String(active));
+    notify(active ? 'وضع الاستماع مفعّل' : 'وضع الاستماع متوقف');
+  }
+  function setSleepTimer(minutes) {
+    if (sleepTimer) { clearTimeout(sleepTimer); sleepTimer = null; }
+    const value = Number(minutes);
+    if (!value) return;
+    sleepTimer = setTimeout(() => { sleepTimer = null; notify('انتهى مؤقت النوم'); closePlayer(); }, value * 60 * 1000);
+    notify(`سيُغلق المشغل بعد ${value} دقيقة`);
   }
   function resetPlayerCursorTimer() {
     clearTimeout(playerIdleTimer);
@@ -1003,6 +1057,9 @@
   $('#closeModal').addEventListener('click', closeModal);
   $('#channelModal').addEventListener('click', event => { if (event.target === $('#channelModal')) closeModal(); });
   $('#closeWatch').addEventListener('click', closePlayer);
+  $('#cinemaWatch').addEventListener('click', toggleCinemaMode);
+  $('#focusWatch').addEventListener('click', toggleFocusMode);
+  $('#sleepTimer').addEventListener('change', event => setSleepTimer(event.target.value));
   if (!$('#watchLaterButton')) {
     const button = document.createElement('button');
     button.id = 'watchLaterButton'; button.className = 'watch-later-player'; button.type = 'button';
@@ -1076,6 +1133,7 @@
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'home')); renderVideos();
   }));
   document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
+  document.querySelectorAll('[data-view-link]').forEach(button => button.addEventListener('click', () => setView(button.dataset.viewLink)));
   $('.topbar .brand').addEventListener('click', event => {
     event.preventDefault();
     setView('home');
@@ -1242,5 +1300,6 @@
     $('#locationLabel').textContent = 'جارٍ تحميل بيانات موقعك…';
     loadLocationDashboard(savedLocation);
   }
+  settings.lastVisitAt = sessionStartedAt; persistSettings();
   renderChannels(); renderVideos(); loadFeed(); resolvePending(); handleSubscriptionImportReturn();
 })();
