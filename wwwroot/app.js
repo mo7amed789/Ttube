@@ -693,8 +693,10 @@
       $('#fullscreenWatch').hidden = true;
     } else {
       const embedOrigin = window.location.origin;
-      const embedQuery = new URLSearchParams({ autoplay: '1', rel: '0', playsinline: '1', controls: '1', fs: '1', origin: embedOrigin, widget_referrer: window.location.href }).toString();
-      $('#playerFrame').innerHTML = `<iframe id="youtubePlayerFrame" src="https://www.youtube.com/embed/${encodeURIComponent(video.id)}?${embedQuery}&enablejsapi=1" title="${escapeHtml(video.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><button class="fullscreen-exit" id="exitFullscreenOverlay" type="button" aria-label="إنهاء ملء الشاشة" title="إنهاء ملء الشاشة">×</button>`;
+      const embedQuery = new URLSearchParams({ autoplay: '1', rel: '0', playsinline: '1', controls: '1', fs: '1', origin: embedOrigin, enablejsapi: '1' }).toString();
+      // Privacy-enhanced embeds avoid carrying the normal YouTube cookie session through
+      // the Ttube proxy while retaining the official iframe player and origin binding.
+      $('#playerFrame').innerHTML = `<iframe id="youtubePlayerFrame" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.id)}?${embedQuery}" title="${escapeHtml(video.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><button class="fullscreen-exit" id="exitFullscreenOverlay" type="button" aria-label="إنهاء ملء الشاشة" title="إنهاء ملء الشاشة">×</button>`;
       $('#minimizeWatch').hidden = false;
       $('#fullscreenWatch').hidden = false;
       observeYouTubePlayer(video);
